@@ -1,0 +1,6 @@
+streamlit
+numpy
+mediapipe
+pillow
+scikit-learn
+opencv
