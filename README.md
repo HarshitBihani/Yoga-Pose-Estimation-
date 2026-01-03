@@ -1,4 +1,4 @@
-# 🧘 Yoga Pose Detection – Real-Time Accuracy App
+# 🧘 Yoga Pose Detection
 <img width="1911" height="844" alt="Screenshot 2026-01-03 163138" src="https://github.com/user-attachments/assets/033cb15c-5d6d-464b-b4a7-8fed22f14527" />
 
 This project is a **Real Time yoga pose Detection web application** that uses a **live webcam feed** to analyze body posture and calculate **pose accuracy** using a trained Machine Learning model.
