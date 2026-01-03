@@ -1,273 +1,110 @@
 import streamlit as st
 import numpy as np
-import math, pickle
-from PIL import Image
 import cv2
+import pickle
+import math
 import mediapipe as mp
+from PIL import Image
 
-mp_drawing = mp.solutions.drawing_utils
+# ---------------- LOAD MODEL ----------------
+with open("Model.pkl", "rb") as f:
+    model = pickle.load(f)
+
 mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils
 
 
-load_model = pickle.load(open('Model.pkl', 'rb'))
-
-def getAngle(a, b, c):
-    ang = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0]))
-    return round(ang + 360 if ang < 0 else ang)
-
-def feature_list(poseLandmarks, posename):
-    return [getAngle(poseLandmarks[16], poseLandmarks[14], poseLandmarks[12]),
-            getAngle(poseLandmarks[14], poseLandmarks[12], poseLandmarks[24]),
-            getAngle(poseLandmarks[13], poseLandmarks[11], poseLandmarks[23]),
-            getAngle(poseLandmarks[15], poseLandmarks[13], poseLandmarks[11]),
-            getAngle(poseLandmarks[12], poseLandmarks[24], poseLandmarks[26]),
-            getAngle(poseLandmarks[11], poseLandmarks[23], poseLandmarks[25]),
-            getAngle(poseLandmarks[24], poseLandmarks[26], poseLandmarks[28]),
-            getAngle(poseLandmarks[23], poseLandmarks[25], poseLandmarks[27]),
-            getAngle(poseLandmarks[26], poseLandmarks[28], poseLandmarks[32]),
-            getAngle(poseLandmarks[25], poseLandmarks[27], poseLandmarks[31]),
-            getAngle(poseLandmarks[0], poseLandmarks[12], poseLandmarks[11]),
-            getAngle(poseLandmarks[0], poseLandmarks[11], poseLandmarks[12]),
-            posename]
+# ---------------- HELPER FUNCTION ----------------
+def get_angle(a, b, c):
+    angle = math.degrees(
+        math.atan2(c[1] - b[1], c[0] - b[0]) -
+        math.atan2(a[1] - b[1], a[0] - b[0])
+    )
+    return angle + 360 if angle < 0 else angle
 
 
+def extract_features(landmarks, pose_id):
+    return [
+        get_angle(landmarks[16], landmarks[14], landmarks[12]),
+        get_angle(landmarks[14], landmarks[12], landmarks[24]),
+        get_angle(landmarks[13], landmarks[11], landmarks[23]),
+        get_angle(landmarks[15], landmarks[13], landmarks[11]),
+        get_angle(landmarks[12], landmarks[24], landmarks[26]),
+        get_angle(landmarks[11], landmarks[23], landmarks[25]),
+        get_angle(landmarks[24], landmarks[26], landmarks[28]),
+        get_angle(landmarks[23], landmarks[25], landmarks[27]),
+        get_angle(landmarks[26], landmarks[28], landmarks[32]),
+        get_angle(landmarks[25], landmarks[27], landmarks[31]),
+        get_angle(landmarks[0], landmarks[12], landmarks[11]),
+        get_angle(landmarks[0], landmarks[11], landmarks[12]),
+        pose_id
+    ]
+
+
+# ---------------- UI ----------------
 st.set_page_config(layout="wide")
+st.title("🧘 Yoga Pose Detection")
 
+pose_name = st.sidebar.selectbox("Select Pose", ["Tree", "Mountain", "Warrior"])
 
-st.sidebar.title('Yoga Pose Detection Project')
+POSES = {
+    "Tree": ("Tree Yoga Pose.jpg", 1),
+    "Mountain": ("Mountain Yoga Pose.jpg", 2),
+    "Warrior": ("Warrior Yoga Pose.jpg", 3),
+}
 
-app_mode = st.sidebar.selectbox('Select The Pose', ['Tree', 'Mountain', 'Warrior'])
+img_path, pose_id = POSES[pose_name]
 
-if app_mode == 'Tree':
+col1, col2 = st.columns([2, 3])
 
-    col1, col2 = st.columns([2, 3])
-    with col1:
-        with st.container():
-            st.write("Tree Pose")
-            image = Image.open('D:/Yoga-Pose-Detection/Tree Yoga Pose.jpg')  
-            st.image(image, caption='Tree Yoga Pose')
-    with col2:
-        st.write("Webcam Live ")
+# ---------------- LEFT COLUMN ----------------
+with col1:
+    st.subheader(f"{pose_name} Pose")
+    img = Image.open(img_path)
+    st.image(img, use_container_width=True)
 
-        button = st.empty()
-        start = button.button('Start')
-        if start:
-            stop = button.button('Stop')
-            visible_message = st.empty()
-            FRAME_WINDOW = st.image([])  
-            accuracytxtbox = st.empty()
+# ---------------- RIGHT COLUMN ----------------
+with col2:
+    st.subheader("Live Camera")
 
-            cap = cv2.VideoCapture(0)
+    start = st.button("Start Camera")
+    stop = st.button("Stop Camera")
 
-            if not cap.isOpened():
-                st.write('Error: Camera is not accessible.')
-            else:
-                with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-                    while cap.isOpened():
-                        ret, frame = cap.read()
+    frame_box = st.image([])
+    accuracy_box = st.empty()
 
-                        if not ret:
-                            st.write("Error: Could not read frame from camera.")
-                            break  
+    if start:
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
-                        h, w, c = frame.shape
+        with mp_pose.Pose(
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        ) as pose:
 
-                        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        image.flags.writeable = False
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-                        results = pose.process(image)
+                h, w, _ = frame.shape
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                result = pose.process(rgb)
 
-                        image.flags.writeable = True
-                        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                if result.pose_landmarks:
+                    landmarks = [
+                        (int(lm.x * w), int(lm.y * h))
+                        for lm in result.pose_landmarks.landmark
+                    ]
 
-                        mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                                                  mp_drawing.DrawingSpec(color=(240, 110, 60), thickness=2, circle_radius=2),
-                                                  mp_drawing.DrawingSpec(color=(240, 60, 230), thickness=2, circle_radius=2))
+                    features = extract_features(landmarks, pose_id)
+                    prediction = int(model.predict(np.array(features).reshape(1, -1))[0])
 
-                        FRAME_WINDOW.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)) 
-                        
-                        poseLandmarks = []
-                        if results.pose_landmarks:
-                            for lm in results.pose_landmarks.landmark:
-                                poseLandmarks.append((int(lm.x * w), int(lm.y * h)))
+                    accuracy_box.markdown(f"### Accuracy: **{prediction}%**")
 
-                        if len(poseLandmarks) == 0:
-                            visible_message.text("Body Not Visible")
-                            accuracytxtbox.text('')
-                            continue
-                        else:
-                            visible_message.text("")
+                frame_box.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-                            d = feature_list(poseLandmarks, 1)
-                            rt_accuracy = int(round(load_model.predict(np.array(d).reshape(1, -1))[0], 0))
+                if stop:
+                    break
 
-                            if rt_accuracy < 75:
-                                accuracytxtbox.text(f"Accuracy : Not so Good {rt_accuracy}")
-                            elif rt_accuracy > 75 and rt_accuracy < 85:
-                                accuracytxtbox.text(f"Accuracy : Fine {rt_accuracy}")
-                            elif rt_accuracy > 85 and rt_accuracy < 95:
-                                accuracytxtbox.text(f"Accuracy : Very Good {rt_accuracy}")
-                            elif rt_accuracy > 95 and rt_accuracy < 100:
-                                accuracytxtbox.text(f"Accuracy : Near to perfection {rt_accuracy}")
-                            elif rt_accuracy >= 100:
-                                accuracytxtbox.text(f"Accuracy : perfect ")
-
-                        if stop:
-                            cap.release()
-                            cv2.destroyAllWindows()
-
-if app_mode == 'Mountain':
-
-    col1, col2 = st.columns([2, 3])
-    with col1:
-        with st.container():
-            st.write("Mountain Pose")
-            image = Image.open('D:/Yoga-Pose-Detection/Mountain Yoga Pose.jpg') 
-            st.image(image, caption='Mountain Yoga Pose')
-    with col2:
-        st.write("Webcam Live Feed")
-
-        button = st.empty()
-        start = button.button('Start')
-        if start:
-            stop = button.button('Stop')
-            visible_message = st.empty()
-            FRAME_WINDOW = st.image([])  
-            accuracytxtbox = st.empty()
-
-            cap = cv2.VideoCapture(0)
-
-            if not cap.isOpened():
-                st.write('Error: Camera is not accessible.')
-            else:
-                with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-                    while cap.isOpened():
-                        ret, frame = cap.read()
-
-                        if not ret:
-                            st.write("Error: Could not read frame from camera.")
-                            break  
-
-                        h, w, c = frame.shape
-
-                        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        image.flags.writeable = False
-
-                        results = pose.process(image)
-
-                        image.flags.writeable = True
-                        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-                        mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                                                  mp_drawing.DrawingSpec(color=(240, 110, 60), thickness=2, circle_radius=2),
-                                                  mp_drawing.DrawingSpec(color=(240, 60, 230), thickness=2, circle_radius=2))
-
-                        FRAME_WINDOW.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))  
-                        
-                        poseLandmarks = []
-                        if results.pose_landmarks:
-                            for lm in results.pose_landmarks.landmark:
-                                poseLandmarks.append((int(lm.x * w), int(lm.y * h)))
-
-                        if len(poseLandmarks) == 0:
-                            visible_message.text("Body Not Visible")
-                            accuracytxtbox.text('')
-                            continue
-                        else:
-                            visible_message.text("")
-
-                            d = feature_list(poseLandmarks, 2)
-                            rt_accuracy = int(round(load_model.predict(np.array(d).reshape(1, -1))[0], 0))
-
-                            if rt_accuracy < 75:
-                                accuracytxtbox.text(f"Accuracy : Not so Good {rt_accuracy}")
-                            elif rt_accuracy > 75 and rt_accuracy < 85:
-                                accuracytxtbox.text(f"Accuracy : Fine {rt_accuracy}")
-                            elif rt_accuracy > 85 and rt_accuracy < 95:
-                                accuracytxtbox.text(f"Accuracy : Very Good {rt_accuracy}")
-                            elif rt_accuracy > 95 and rt_accuracy < 100:
-                                accuracytxtbox.text(f"Accuracy : Near to perfection {rt_accuracy}")
-                            elif rt_accuracy >= 100:
-                                accuracytxtbox.text(f"Accuracy : Perfect ")
-
-                        if stop:
-                            cap.release()
-                            cv2.destroyAllWindows()
-
-if app_mode == 'Warrior':
-
-    col1, col2 = st.columns([2, 3])
-    with col1:
-        with st.container():
-            st.write("Warrior Yoga Pose")
-            image = Image.open('D:/Yoga-Pose-Detection/Warrior Yoga Pose.jpg')  
-            st.image(image, caption='Warrior Yoga Pose')
-    with col2:
-        st.write("Webcam Live Feed")
-
-        button = st.empty()
-        start = button.button('Start')
-        if start:
-            stop = button.button('Stop')
-            visible_message = st.empty()
-            FRAME_WINDOW = st.image([])  
-            accuracytxtbox = st.empty()
-
-            cap = cv2.VideoCapture(0)
-
-            if not cap.isOpened():
-                st.write('Error: Camera is not accessible.')
-            else:
-                with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
-                    while cap.isOpened():
-                        ret, frame = cap.read()
-
-                        if not ret:
-                            st.write("Error: Could not read frame from camera.")
-                            break  
-
-                        h, w, c = frame.shape
-
-                        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        image.flags.writeable = False
-
-                        results = pose.process(image)
-
-                        image.flags.writeable = True
-                        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-                        mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                                                  mp_drawing.DrawingSpec(color=(240, 110, 60), thickness=2, circle_radius=2),
-                                                  mp_drawing.DrawingSpec(color=(240, 60, 230), thickness=2, circle_radius=2))
-
-                        FRAME_WINDOW.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)) 
-                        
-                        poseLandmarks = []
-                        if results.pose_landmarks:
-                            for lm in results.pose_landmarks.landmark:
-                                poseLandmarks.append((int(lm.x * w), int(lm.y * h)))
-
-                        if len(poseLandmarks) == 0:
-                            visible_message.text("Body Not Visible")
-                            accuracytxtbox.text('')
-                            continue
-                        else:
-                            visible_message.text("")
-
-                            d = feature_list(poseLandmarks, 3)
-                            rt_accuracy = int(round(load_model.predict(np.array(d).reshape(1, -1))[0], 0))
-
-                            if rt_accuracy < 75:
-                                accuracytxtbox.text(f"Accuracy : Not so Good {rt_accuracy}")
-                            elif rt_accuracy > 75 and rt_accuracy < 85:
-                                accuracytxtbox.text(f"Accuracy : Fine{rt_accuracy}")
-                            elif rt_accuracy > 85 and rt_accuracy < 95:
-                                accuracytxtbox.text(f"Accuracy : Very Good {rt_accuracy}")
-                            elif rt_accuracy > 95 and rt_accuracy < 100:
-                                accuracytxtbox.text(f"Accuracy : Near to perfection {rt_accuracy}")
-                            elif rt_accuracy >= 100:
-                                accuracytxtbox.text(f"Accuracy : Perfect ")
-
-                        if stop:
-                            cap.release()
-                            cv2.destroyAllWindows()
+        cap.release()
+        cv2.destroyAllWindows()
